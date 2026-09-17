@@ -1,0 +1,44 @@
+@import "tailwindcss";
+
+:root {
+  font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+}
+
+[dir="rtl"] {
+  font-family: 'Cairo', 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+}
+
+/* Always visible, clean styled scrollbars */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: #f1f5f9;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #94a3b8;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #64748b;
+}
+
+* {
+  scrollbar-width: thin;
+  scrollbar-color: #94a3b8 #f1f5f9;
+}
+
+/* User-selected elements styling */
+div#root > div > div > main > div > div:nth-of-type(2) > div:nth-of-type(2) > table > tbody > tr > td:nth-of-type(6) {
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+}
+
+div#root > div > div > header > div:nth-of-type(2) > div:nth-of-type(2) {
+  transition: all 0.15s ease-in-out;
+}

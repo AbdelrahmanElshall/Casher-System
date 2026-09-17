@@ -1,0 +1,6 @@
+{
+  "name": "Universal Retail POS & ERP",
+  "description": "Bilingual (English & Arabic) Point of Sale, Inventory, and Financial ERP platform tailored for Egyptian retail, grocery, and pharmacy with detailed sales, expenses, and cash flow tracking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
