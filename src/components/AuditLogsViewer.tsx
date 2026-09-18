@@ -101,7 +101,7 @@ export const AuditLogsViewer: React.FC<AuditLogsViewerProps> = ({ lang }) => {
 
       {/* Main Table */}
       <div className="flex-1 bg-white rounded-2xl shadow-xs border border-slate-200 overflow-hidden flex flex-col">
-        <div className="flex-1 overflow-y-auto">
+        <div className="flex-1 overflow-y-auto min-h-0">
           <table className="w-full text-start border-collapse text-xs">
             <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 uppercase tracking-wider sticky top-0 z-10">
               <tr>

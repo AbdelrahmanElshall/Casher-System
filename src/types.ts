@@ -37,6 +37,7 @@ export interface Branch {
   address?: string;
   isMain: boolean;
   isActive: boolean;
+  status?: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
 }
 
 export interface Warehouse {
@@ -46,6 +47,7 @@ export interface Warehouse {
   code: string;
   isDefault: boolean;
   isActive: boolean;
+  status?: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
 }
 
 export interface CashRegister {
@@ -54,6 +56,7 @@ export interface CashRegister {
   name: string;
   identifier: string;
   isActive: boolean;
+  status?: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
 }
 
 export interface User {
@@ -80,6 +83,7 @@ export interface Category {
   color?: string;
   itemCount?: number;
   isActive: boolean;
+  status?: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
 }
 
 export interface SystemNotification {
@@ -118,6 +122,7 @@ export interface Product {
   barcode: string;
   productType: ProductType;
   unit: string;
+  status?: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
   costPrice: number;
   sellingPrice: number;
   wholesalePrice?: number;
@@ -150,6 +155,7 @@ export interface ProductBatch {
   expiryDate: string;
   quantity: number;
   isActive: boolean;
+  status?: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
 }
 
 export interface StockMovement {
@@ -246,6 +252,7 @@ export interface SaleItem {
   sku?: string;
   barcode?: string;
   unit: string;
+  status?: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
   quantity: number;
   unitCost: number;
   unitPrice: number;
@@ -283,6 +290,7 @@ export interface Customer {
   currentBalance: number;
   loyaltyPoints: number;
   isActive: boolean;
+  status?: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
 }
 
 export interface Supplier {
@@ -296,6 +304,7 @@ export interface Supplier {
   paymentTermsDays: number;
   currentBalance: number;
   isActive: boolean;
+  status?: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
 }
 
 export interface Purchase {
@@ -348,6 +357,10 @@ export interface Expense {
   explanation?: string;
   payee?: string;
   expenseDate: string;
+  status?: 'PENDING_APPROVAL' | 'APPROVED' | 'REJECTED';
+  approvedBy?: string;
+  rejectedBy?: string;
+  rejectionReason?: string;
   createdAt: string;
 }
 

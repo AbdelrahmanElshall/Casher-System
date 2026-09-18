@@ -6,7 +6,8 @@ import {
   Barcode, DollarSign, Boxes
 } from 'lucide-react';
 import { Product, StockMovement, User, Category } from '../types';
-import { PosStorageEngine, isSuperAdmin } from '../storage';
+import { getRoleConfig } from '../rbac';
+import { PosStorageEngine, isSuperAdmin, hasPermission } from '../storage';
 import { Language, TRANSLATIONS, formatEGP } from '../utils/i18n';
 
 interface InventoryManagerProps {
@@ -16,8 +17,14 @@ interface InventoryManagerProps {
 
 export const InventoryManager: React.FC<InventoryManagerProps> = ({ lang, currentUser }) => {
   const t = TRANSLATIONS[lang];
+  const rbac = getRoleConfig(currentUser.roleId);
   const isArabic = lang === 'ar';
   const superAdmin = isSuperAdmin(currentUser);
+  const canCreateProduct = hasPermission(currentUser, 'CREATE_PRODUCT');
+  const canEditProduct = hasPermission(currentUser, 'EDIT_PRODUCT');
+  const canCreateCategory = hasPermission(currentUser, 'CREATE_CATEGORY');
+  const canEditCategory = hasPermission(currentUser, 'EDIT_CATEGORY');
+  const canModifyStock = hasPermission(currentUser, 'INV_MODIFY_STOCK');
 
   const [products, setProducts] = useState<Product[]>(PosStorageEngine.getProducts());
   const [categories, setCategories] = useState<Category[]>(PosStorageEngine.getCategories());
@@ -75,12 +82,12 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ lang, curren
   };
 
   // RBAC Interceptor
-  const requireSuperAdmin = (actionName: string): boolean => {
-    if (!superAdmin) {
+  const requirePermission = (permissionKey: string, actionName: string): boolean => {
+    if (!hasPermission(currentUser, permissionKey)) {
       setPermissionWarning(
         isArabic
-          ? `عفواً! عملية (${actionName}) مقتصرة حصرياً على مدير النظام (Super Admin). حسابك الحالي بصلاحية [${currentUser.roleName}] غير مخول بتعديل أو حذف كتالوج الأصناف والتصنيفات.`
-          : `Access Restricted! (${actionName}) is strictly reserved for Super Administrators. Your current role [${currentUser.roleName}] does not have permission to alter the product catalog.`
+          ? `عفواً! عملية (${actionName}) غير مصرح بها. حسابك الحالي بصلاحية [${currentUser.roleName}] غير مخول للقيام بهذا الإجراء.`
+          : `Access Restricted! (${actionName}) is not allowed. Your current role [${currentUser.roleName}] does not have permission.`
       );
       return false;
     }
@@ -90,7 +97,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ lang, curren
   // Handle Add Product Submit
   const handleAddProduct = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!requireSuperAdmin(isArabic ? 'إضافة منتج جديد' : 'Add New Product')) return;
+    if (!requirePermission('CREATE_PRODUCT', isArabic ? 'إضافة منتج جديد' : 'Add New Product')) return;
 
     const cost = parseFloat(newProdCost);
     const price = parseFloat(newProdPrice);
@@ -147,7 +154,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ lang, curren
   // Handle Delete Product
   const confirmDeleteProduct = () => {
     if (!productToDelete) return;
-    if (!requireSuperAdmin(isArabic ? 'حذف منتج' : 'Delete Product')) {
+    if (!requirePermission('DELETE_PRODUCT', isArabic ? 'حذف منتج' : 'Delete Product')) {
       setProductToDelete(null);
       return;
     }
@@ -165,7 +172,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ lang, curren
   // Handle Add Category Submit
   const handleAddCategory = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!requireSuperAdmin(isArabic ? 'إنشاء تصنيف جديد' : 'Create New Category')) return;
+    if (!requirePermission('CREATE_CATEGORY', isArabic ? 'إنشاء تصنيف جديد' : 'Create New Category')) return;
 
     if (!newCatName.trim()) {
       showNotification('error', isArabic ? 'يرجى كتابة اسم التصنيف' : 'Category name required');
@@ -195,7 +202,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ lang, curren
   // Handle Delete Category
   const confirmDeleteCategory = () => {
     if (!categoryToDelete) return;
-    if (!requireSuperAdmin(isArabic ? 'حذف تصنيف' : 'Delete Category')) {
+    if (!requirePermission('DELETE_CATEGORY', isArabic ? 'حذف تصنيف' : 'Delete Category')) {
       setCategoryToDelete(null);
       return;
     }
@@ -304,7 +311,8 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ lang, curren
             : 'bg-rose-50 text-rose-800 border-rose-300'
         }`}>
           <span>{actionNotice.message}</span>
-          <button onClick={() => setActionNotice(null)} className="cursor-pointer opacity-70 hover:opacity-100 font-mono">✕</button>
+          {rbac.canCreateCategory && (
+                <button onClick={() => setActionNotice(null)} className="cursor-pointer opacity-70 hover:opacity-100 font-mono">✕</button>
         </div>
       )}
 
@@ -316,7 +324,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ lang, curren
             <h1 className="text-xl font-extrabold text-slate-900 tracking-tight">
               {t.inventoryTitle}
             </h1>
-            {superAdmin ? (
+            {canCreateCategory || canCreateProduct || canModifyStock ? (
               <span className="px-2 py-0.5 bg-emerald-100 text-emerald-800 border border-emerald-300 rounded-lg text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
                 <CheckCircle2 className="w-3 h-3 text-emerald-600" />
                 {isArabic ? 'صلاحيات المشرف العام (Super Admin)' : 'Super Admin Mode'}
@@ -337,39 +345,41 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ lang, curren
 
         {/* Action Buttons: Add Product & Add Category */}
         <div className="flex items-center gap-2">
-          {/* New Category Button */}
+          {rbac.canCreateCategory && (
+            {/* New Category Button */}
           <button
             onClick={() => {
-              if (requireSuperAdmin(isArabic ? 'إدارة وإنشاء التصنيفات' : 'Manage Categories')) {
+              if (requirePermission('CREATE_CATEGORY', isArabic ? 'إدارة وإنشاء التصنيفات' : 'Manage Categories')) {
                 setIsAddCategoryModalOpen(true);
               }
             }}
             className={`px-3 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-              superAdmin 
+              canCreateCategory 
                 ? 'bg-white hover:bg-slate-50 text-slate-700 border border-slate-300 shadow-2xs' 
                 : 'bg-slate-200 text-slate-500 border border-slate-300 hover:bg-slate-200'
             }`}
           >
-            {superAdmin ? <FolderPlus className="w-4 h-4 text-emerald-600" /> : <Lock className="w-3.5 h-3.5 text-slate-400" />}
+            {canCreateCategory ? <FolderPlus className="w-4 h-4 text-emerald-600" /> : <Lock className="w-3.5 h-3.5 text-slate-400" />}
             <span>{isArabic ? 'إضافة تصنيف جديد' : 'New Category'}</span>
           </button>
+          )}
 
           {/* New Product Button */}
           <button
             onClick={() => {
-              if (requireSuperAdmin(isArabic ? 'إضافة صنف جديد' : 'Add New Product')) {
+              if (requirePermission('CREATE_PRODUCT', isArabic ? 'إضافة صنف جديد' : 'Add New Product')) {
                 setIsAddProductModalOpen(true);
               }
             }}
             className={`px-4 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-sm transition-all cursor-pointer ${
-              superAdmin 
+              canCreateProduct 
                 ? 'bg-emerald-600 hover:bg-emerald-500 text-white active:scale-95' 
                 : 'bg-slate-300 text-slate-600 border border-slate-400/40 hover:bg-slate-300'
             }`}
           >
-            {superAdmin ? <Plus className="w-4 h-4" /> : <Lock className="w-3.5 h-3.5 text-slate-500" />}
+            {canCreateProduct ? <Plus className="w-4 h-4" /> : <Lock className="w-3.5 h-3.5 text-slate-500" />}
             <span>{isArabic ? 'إضافة منتج جديد' : 'Add New Product'}</span>
-            {!superAdmin && <span className="text-[10px] text-slate-500">({isArabic ? 'أدمن فقط' : 'Admin only'})</span>}
+            {!canCreateProduct && <span className="text-[10px] text-slate-500">({isArabic ? 'غير مصرح' : 'No Access'})</span>}
           </button>
         </div>
       </div>
@@ -477,7 +487,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ lang, curren
 
         {/* TAB 1: STOCK INVENTORY LIST */}
         {activeTab === 'STOCK' && (
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto min-h-0">
             <table className="w-full text-start border-collapse text-xs">
               <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 uppercase tracking-wider sticky top-0 z-10">
                 <tr>
@@ -559,16 +569,16 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ lang, curren
                           {/* Delete Product Button (STRICTLY SUPER ADMIN ONLY) */}
                           <button
                             onClick={() => {
-                              if (requireSuperAdmin(isArabic ? 'حذف صنف من المخزون' : 'Delete Product')) {
+                              if (requirePermission('DELETE_PRODUCT', isArabic ? 'حذف صنف من المخزون' : 'Delete Product')) {
                                 setProductToDelete(p);
                               }
                             }}
                             className={`p-1.5 rounded-lg transition-all cursor-pointer ${
-                              superAdmin 
+                              canEditProduct 
                                 ? 'bg-slate-100 hover:bg-rose-50 text-slate-400 hover:text-rose-600' 
                                 : 'bg-slate-100 text-slate-300 opacity-60 cursor-not-allowed'
                             }`}
-                            title={superAdmin ? (isArabic ? 'حذف المنتج نهائياً (سوبر أدمن)' : 'Delete Product (Super Admin)') : (isArabic ? 'حذف المنتج متاح فقط لمدير النظام' : 'Super Admin Only')}
+                            title={canEditProduct ? (isArabic ? 'حذف المنتج نهائياً' : 'Delete Product') : (isArabic ? 'غير مصرح بالحذف' : 'No Access')}
                           >
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
@@ -584,7 +594,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ lang, curren
 
         {/* TAB 2: CATEGORY MANAGEMENT */}
         {activeTab === 'CATEGORIES' && (
-          <div className="p-6 overflow-y-auto flex-1">
+          <div className="p-6 overflow-y-auto flex-1 min-h-0">
             <div className="flex justify-between items-center mb-4">
               <div>
                 <h3 className="text-sm font-bold text-slate-900">{isArabic ? 'كتالوج التصنيفات والأقسام' : 'Product Categories'}</h3>
@@ -595,19 +605,20 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ lang, curren
 
               <button
                 onClick={() => {
-                  if (requireSuperAdmin(isArabic ? 'إضافة تصنيف جديد' : 'Create Category')) {
+                  if (requirePermission('CREATE_CATEGORY', isArabic ? 'إضافة تصنيف جديد' : 'Create Category')) {
                     setIsAddCategoryModalOpen(true);
                   }
                 }}
                 className={`px-3.5 py-2 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                  superAdmin 
+                  canCreateCategory 
                     ? 'bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs' 
                     : 'bg-slate-200 text-slate-500'
                 }`}
               >
-                {superAdmin ? <Plus className="w-4 h-4" /> : <Lock className="w-3.5 h-3.5" />}
+                {canCreateCategory ? <Plus className="w-4 h-4" /> : <Lock className="w-3.5 h-3.5" />}
                 <span>{isArabic ? 'تصنيف جديد' : 'New Category'}</span>
               </button>
+              )}
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -633,16 +644,16 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ lang, curren
                       {/* Delete Category Button (Super Admin Only) */}
                       <button
                         onClick={() => {
-                          if (requireSuperAdmin(isArabic ? 'حذف تصنيف' : 'Delete Category')) {
+                          if (requirePermission('DELETE_CATEGORY', isArabic ? 'حذف تصنيف' : 'Delete Category')) {
                             setCategoryToDelete(cat);
                           }
                         }}
                         className={`p-1.5 rounded-lg transition-all cursor-pointer ${
-                          superAdmin 
+                          canEditCategory 
                             ? 'text-slate-400 hover:text-rose-600 hover:bg-rose-50' 
                             : 'text-slate-300 cursor-not-allowed'
                         }`}
-                        title={superAdmin ? (isArabic ? 'حذف التصنيف' : 'Delete Category') : (isArabic ? 'أدمن فقط' : 'Admin Only')}
+                        title={canEditCategory ? (isArabic ? 'حذف التصنيف' : 'Delete Category') : (isArabic ? 'غير مصرح بالحذف' : 'No Access')}
                       >
                         <Trash2 className="w-4 h-4" />
                       </button>
@@ -663,7 +674,7 @@ export const InventoryManager: React.FC<InventoryManagerProps> = ({ lang, curren
 
         {/* TAB 3: MOVEMENTS LEDGER */}
         {activeTab === 'MOVEMENTS' && (
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto min-h-0">
             <table className="w-full text-start border-collapse text-xs">
               <thead className="bg-slate-50 text-slate-600 font-bold border-b border-slate-200 uppercase tracking-wider sticky top-0 z-10">
                 <tr>

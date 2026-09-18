@@ -207,7 +207,7 @@ export const TestingSuiteModal: React.FC<TestingSuiteModalProps> = ({
         </div>
 
         {/* Test Cases List */}
-        <div className="flex-1 overflow-y-auto p-6 space-y-3">
+        <div className="flex-1 overflow-y-auto min-h-0 p-6 space-y-3">
           {testResults.map(tc => (
             <div
               key={tc.id}

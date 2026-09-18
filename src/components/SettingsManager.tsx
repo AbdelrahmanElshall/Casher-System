@@ -71,7 +71,7 @@ export const SettingsManager: React.FC<SettingsManagerProps> = ({ lang, currentU
       </div>
 
       {/* Main Settings Form */}
-      <div className="flex-1 overflow-y-auto">
+      <div className="flex-1 overflow-y-auto min-h-0">
         <form onSubmit={handleSave} className="max-w-4xl space-y-6 pb-8">
           {/* Card 1: Enterprise Legal Identity */}
           <div className="bg-white p-6 rounded-2xl border border-slate-200 shadow-xs space-y-4">

@@ -105,7 +105,7 @@ export const SystemDocumentationModal: React.FC<SystemDocumentationModalProps> =
         </div>
 
         {/* Content Body */}
-        <div className="flex-1 overflow-y-auto p-6">
+        <div className="flex-1 overflow-y-auto min-h-0 p-6">
           {selectedTopic === 'PHASES' && (
             <div>
               <h3 className="text-sm font-bold text-slate-900 mb-3">

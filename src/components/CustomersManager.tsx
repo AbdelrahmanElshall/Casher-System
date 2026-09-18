@@ -3,15 +3,16 @@ import {
   Users, UserPlus, Phone, CreditCard, Award, Search, 
   CalendarDays, Clock, Tag, Edit3, Check, Percent, Sparkles, AlertCircle 
 } from 'lucide-react';
-import { Customer } from '../types';
+import { Customer, User } from '../types';
 import { PosStorageEngine } from '../storage';
 import { Language, TRANSLATIONS, formatEGP } from '../utils/i18n';
 
 interface CustomersManagerProps {
   lang: Language;
+  currentUser: User;
 }
 
-export const CustomersManager: React.FC<CustomersManagerProps> = ({ lang }) => {
+export const CustomersManager: React.FC<CustomersManagerProps> = ({ lang, currentUser }) => {
   const isArabic = lang === 'ar';
   const t = TRANSLATIONS[lang];
   const [customers, setCustomers] = useState<Customer[]>(PosStorageEngine.getCustomers());
@@ -69,8 +70,9 @@ export const CustomersManager: React.FC<CustomersManagerProps> = ({ lang }) => {
 
     const discountNum = isSpecial ? Math.max(0, Math.min(100, parseFloat(specialDiscountRate) || 0)) : 0;
 
+    let res;
     if (editingCustomer) {
-      PosStorageEngine.updateCustomer(editingCustomer.id, {
+      res = PosStorageEngine.updateCustomer(editingCustomer.id, {
         name: name.trim(),
         phone: phone.trim() || undefined,
         taxNumber: taxNumber.trim() || undefined,
@@ -80,9 +82,9 @@ export const CustomersManager: React.FC<CustomersManagerProps> = ({ lang }) => {
         isSpecial,
         specialDiscountRate: discountNum,
         creditLimit: parseFloat(creditLimit) || 0,
-      });
+      }, currentUser);
     } else {
-      PosStorageEngine.addCustomer({
+      res = PosStorageEngine.addCustomer({
         name: name.trim(),
         phone: phone.trim() || '0100 000 0000',
         taxNumber: taxNumber.trim() || undefined,
@@ -92,7 +94,12 @@ export const CustomersManager: React.FC<CustomersManagerProps> = ({ lang }) => {
         isSpecial,
         specialDiscountRate: discountNum,
         creditLimit: parseFloat(creditLimit) || 0,
-      });
+      }, currentUser);
+    }
+
+    if (!res.success) {
+      alert(res.error);
+      return;
     }
 
     setIsAddModalOpen(false);

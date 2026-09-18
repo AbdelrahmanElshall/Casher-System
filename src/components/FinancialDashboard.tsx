@@ -6,8 +6,8 @@ import {
   CreditCard, Smartphone, Wallet, ChevronDown, ChevronUp,
   Package, Calendar, Building2, CheckCircle2, Edit3, HelpCircle
 } from 'lucide-react';
-import { PosStorageEngine } from '../storage';
-import { Expense, Sale } from '../types';
+import { PosStorageEngine, hasPermission, isSuperAdmin } from '../storage';
+import { Expense, Sale, User } from '../types';
 import { printThermalReceipt } from '../utils/printer';
 import { Language, TRANSLATIONS, formatEGP } from '../utils/i18n';
 
@@ -22,13 +22,18 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({ lang }) 
   const t = TRANSLATIONS[lang];
   const isArabic = lang === 'ar';
 
+  const currentUser = PosStorageEngine.getCurrentUser();
+  const canViewReports = hasPermission(currentUser, 'FIN_VIEW_REPORTS');
+  const canManageExpenses = hasPermission(currentUser, 'FIN_MANAGE_EXPENSE');
+  const canCreateVoucher = hasPermission(currentUser, 'CREATE_EXPENSE_VOUCHER');
+
   const [sales, setSales] = useState<Sale[]>(PosStorageEngine.getSales());
   const [expenses, setExpenses] = useState<Expense[]>(PosStorageEngine.getExpenses());
   const products = PosStorageEngine.getProducts();
   const activeSession = PosStorageEngine.getActiveSession();
 
   // Navigation and filters
-  const [activeTab, setActiveTab] = useState<TabType>('SPENT');
+  const [activeTab, setActiveTab] = useState<TabType>(canViewReports ? 'SPENT' : 'SPENT');
   const [dateFilter, setDateFilter] = useState<DateFilterType>('ALL');
 
   // Search & sub-filters
@@ -84,6 +89,17 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({ lang }) 
     setIsExpenseModalOpen(true);
   };
 
+  const handleApproveReject = (status: 'APPROVED' | 'REJECTED') => {
+    if (!editingExpense) return;
+    PosStorageEngine.updateExpense(editingExpense.id, {
+      status,
+      approvedBy: status === 'APPROVED' ? currentUser?.name : undefined,
+      rejectedBy: status === 'REJECTED' ? currentUser?.name : undefined,
+    }, currentUser);
+    setIsExpenseModalOpen(false);
+    refreshFinancials();
+  };
+
   const handleSaveExpense = (e: React.FormEvent) => {
     e.preventDefault();
     const amt = parseFloat(expAmount);
@@ -98,24 +114,24 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({ lang }) 
         categoryName: expCategory,
         paymentMethod: expPaymentMethod,
         description: expNotes || expExplanation,
-      });
+      }, currentUser);
     } else {
       PosStorageEngine.addExpense({
         expenseNo: `EXP-EG-${new Date().getFullYear()}-${String(Date.now()).slice(-4)}`,
-        branchId: 'br-nasr-city',
+        branchId: currentUser.branchId || 'br-nasr-city',
         categoryId: 'cat-ops',
         categoryName: expCategory,
-        userId: 'usr-admin',
-        userName: isArabic ? 'د. أحمد الشناوي' : 'Dr. Ahmed El-Shennawy',
+        userId: currentUser.id,
+        userName: currentUser.name,
         cashSessionId: activeSession?.id,
         amount: amt,
         paymentMethod: expPaymentMethod,
         title: expTitle,
         explanation: expExplanation,
         payee: expPayee,
-        description: expNotes || expExplanation || (isArabic ? 'سند صرف نقدي معتمد من الإدارة' : 'Approved store expense voucher'),
+        description: expNotes || expExplanation || (isArabic ? 'سند صرف نقدي' : 'Store expense voucher'),
         expenseDate: new Date().toISOString().split('T')[0],
-      });
+      }, currentUser);
     }
 
     setIsExpenseModalOpen(false);
@@ -146,8 +162,12 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({ lang }) 
   }, [sales, dateFilter]);
 
   const filteredExpenses = useMemo(() => {
-    return expenses.filter(e => filterByDate(e.createdAt || e.expenseDate));
-  }, [expenses, dateFilter]);
+    let baseExpenses = expenses;
+    if (!canViewReports && !canManageExpenses) {
+      baseExpenses = expenses.filter(e => e.userId === currentUser.id);
+    }
+    return baseExpenses.filter(e => filterByDate(e.createdAt || e.expenseDate));
+  }, [expenses, dateFilter, canViewReports, canManageExpenses, currentUser.id]);
 
   // Overall Financial KPIs
   const totalRevenue = useMemo(() => {
@@ -308,7 +328,7 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({ lang }) 
   }, [filteredSales, invoicePaymentFilter, invoiceSearch]);
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-slate-100 p-4 md:p-6 overflow-y-auto">
+    <div className="flex-1 bg-slate-100 p-4 md:p-6 overflow-y-auto min-h-0">
       {/* Top Header & Period Selection */}
       <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 mb-6">
         <div>
@@ -379,6 +399,7 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({ lang }) 
       </div>
 
       {/* KPI Financial Overview Cards */}
+      {canViewReports && (
       <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
         {/* Card 1: What Was Sold Total Revenue */}
         <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs relative overflow-hidden">
@@ -450,6 +471,7 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({ lang }) 
           </div>
         </div>
       </div>
+      )}
 
       {/* Main Navigation Tabs for Detailed Deep Dive */}
       <div className="flex items-center gap-2 border-b border-slate-200 mb-5 overflow-x-auto pb-1">
@@ -515,6 +537,7 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({ lang }) 
       {activeTab === 'SPENT' && (
         <div className="space-y-6">
           {/* Spending Categories Breakdown Grid */}
+          {canViewReports && (
           <div>
             <h3 className="font-extrabold text-sm text-slate-800 mb-3 flex items-center gap-2">
               <FileSpreadsheet className="w-4 h-4 text-rose-600" />
@@ -550,6 +573,7 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({ lang }) 
               })}
             </div>
           </div>
+          )}
 
           {/* Itemized Expenses Ledger with Search & Filter */}
           <div className="bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
@@ -594,6 +618,7 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({ lang }) 
                     <th className="py-3 px-4">{isArabic ? 'طريقة الصرف' : 'Payment'}</th>
                     <th className="py-3 px-4">{isArabic ? 'المسؤول' : 'Cashier'}</th>
                     <th className="py-3 px-4">{isArabic ? 'التاريخ' : 'Date'}</th>
+                    <th className="py-3 px-4 text-center">{isArabic ? 'الحالة' : 'Status'}</th>
                     <th className="py-3 px-4 text-end">{isArabic ? 'المبلغ (ج.م)' : 'Amount (EGP)'}</th>
                     <th className="py-3 px-4 text-center">{isArabic ? 'تعديل وتوضيح' : 'Edit'}</th>
                   </tr>
@@ -634,6 +659,11 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({ lang }) 
                       <td className="py-3 px-4 text-slate-500 font-mono text-[11px]">
                         {exp.expenseDate || new Date(exp.createdAt).toLocaleDateString(isArabic ? 'ar-EG' : 'en-US')}
                       </td>
+                      <td className="py-3 px-4 text-center">
+                        <span className={`px-2 py-0.5 rounded-md font-bold text-[10px] ${exp.status === 'APPROVED' ? 'bg-emerald-50 text-emerald-800' : exp.status === 'REJECTED' ? 'bg-rose-50 text-rose-800' : 'bg-amber-50 text-amber-800'}`}>
+                          {exp.status === 'APPROVED' ? (isArabic ? 'مُعتمد' : 'Approved') : exp.status === 'REJECTED' ? (isArabic ? 'مرفوض' : 'Rejected') : (isArabic ? 'قيد المراجعة' : 'Pending')}
+                        </span>
+                      </td>
                       <td className="py-3 px-4 text-end font-mono font-black text-rose-700 text-sm">
                         - {formatEGP(exp.amount, lang)}
                       </td>
@@ -650,7 +680,7 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({ lang }) 
                   ))}
                   {displayedExpenses.length === 0 && (
                     <tr>
-                      <td colSpan={8} className="py-8 text-center text-slate-400">
+                      <td colSpan={9} className="py-8 text-center text-slate-400">
                         {isArabic ? 'لا توجد سندات صرف مطابقة لخيارات البحث' : 'No expenses match the current filter criteria'}
                       </td>
                     </tr>
@@ -1170,23 +1200,45 @@ export const FinancialDashboard: React.FC<FinancialDashboardProps> = ({ lang }) 
               </div>
             </div>
 
-            <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setIsExpenseModalOpen(false)}
-                className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200 rounded-xl cursor-pointer"
-              >
-                {t.cancel}
-              </button>
-              <button
-                type="submit"
-                className="px-5 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 active:scale-95 rounded-xl shadow-xs cursor-pointer transition-all"
-              >
-                {editingExpense 
-                  ? (isArabic ? 'حفظ التعديلات' : 'Save Changes')
-                  : t.save
-                }
-              </button>
+            <div className="p-4 bg-slate-50 border-t border-slate-200 flex justify-between gap-2">
+              <div className="flex gap-2">
+                {editingExpense && editingExpense.status === 'PENDING_APPROVAL' && canManageExpenses && (
+                  <>
+                    <button
+                      type="button"
+                      onClick={() => handleApproveReject('APPROVED')}
+                      className="px-4 py-2 text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 rounded-xl cursor-pointer"
+                    >
+                      {isArabic ? 'اعتماد وصرف' : 'Approve'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleApproveReject('REJECTED')}
+                      className="px-4 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 rounded-xl cursor-pointer"
+                    >
+                      {isArabic ? 'رفض' : 'Reject'}
+                    </button>
+                  </>
+                )}
+              </div>
+              <div className="flex gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsExpenseModalOpen(false)}
+                  className="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-200 rounded-xl cursor-pointer"
+                >
+                  {t.cancel}
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2 text-xs font-bold text-white bg-rose-600 hover:bg-rose-700 active:scale-95 rounded-xl shadow-xs cursor-pointer transition-all"
+                >
+                  {editingExpense 
+                    ? (isArabic ? 'حفظ التعديلات' : 'Save Changes')
+                    : t.save
+                  }
+                </button>
+              </div>
             </div>
           </form>
         </div>

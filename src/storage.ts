@@ -11,11 +11,17 @@ import {
 
 export function isSuperAdmin(user?: User | null): boolean {
   if (!user) return false;
-  if (user.roleId === 'role-admin') return true;
+  if (user.roleId === 'role-superadmin') return true;
   const roleLower = (user.roleName || '').toLowerCase();
-  if (roleLower.includes('admin') || roleLower.includes('مدير') || roleLower.includes('owner')) return true;
+  if (roleLower === 'super admin' || roleLower === 'مدير عام') return true;
   if (user.permissions?.includes('ALL') || user.permissions?.includes('SUPER_ADMIN')) return true;
   return false;
+}
+
+export function hasPermission(user: User | null | undefined, permissionCode: string): boolean {
+  if (!user) return false;
+  if (isSuperAdmin(user)) return true;
+  return user.permissions?.includes(permissionCode) || user.permissions?.includes('ALL') || false;
 }
 
 export const INITIAL_CATEGORIES: Category[] = [
@@ -175,7 +181,10 @@ export class PosStorageEngine {
     localStorage.setItem(STORAGE_KEYS.CUSTOMERS, JSON.stringify(customers));
   }
 
-  static addCustomer(customer: Omit<Customer, 'id' | 'currentBalance' | 'loyaltyPoints' | 'isActive'>): Customer {
+  static addCustomer(customer: Omit<Customer, 'id' | 'currentBalance' | 'loyaltyPoints' | 'isActive'>, performedBy?: User): { success: boolean; customer?: Customer; error?: string } {
+    if (performedBy && !hasPermission(performedBy, 'CREATE_CUSTOMER')) {
+      return { success: false, error: 'صلاحية مرفوضة: لا تملك صلاحية إضافة عميل (CREATE_CUSTOMER).' };
+    }
     const customers = this.getCustomers();
     const newCust: Customer = {
       ...customer,
@@ -186,16 +195,39 @@ export class PosStorageEngine {
     };
     customers.push(newCust);
     this.saveCustomers(customers);
-    return newCust;
+    
+    this.addAuditLog({
+      userId: performedBy?.id || 'system',
+      userName: performedBy?.name || 'System',
+      action: 'CREATE_CUSTOMER',
+      entity: 'Customer',
+      entityId: newCust.id,
+      newValues: { name: newCust.name },
+    });
+
+    return { success: true, customer: newCust };
   }
 
-  static updateCustomer(id: string, updates: Partial<Customer>): Customer | null {
+  static updateCustomer(id: string, updates: Partial<Customer>, performedBy?: User): { success: boolean; customer?: Customer; error?: string } {
+    if (performedBy && !hasPermission(performedBy, 'EDIT_CUSTOMER')) {
+      return { success: false, error: 'صلاحية مرفوضة: لا تملك صلاحية تعديل بيانات العملاء (EDIT_CUSTOMER).' };
+    }
     const customers = this.getCustomers();
     const idx = customers.findIndex(c => c.id === id);
-    if (idx === -1) return null;
+    if (idx === -1) return { success: false, error: 'العميل غير موجود' };
     customers[idx] = { ...customers[idx], ...updates };
     this.saveCustomers(customers);
-    return customers[idx];
+    
+    this.addAuditLog({
+      userId: performedBy?.id || 'system',
+      userName: performedBy?.name || 'System',
+      action: 'UPDATE_CUSTOMER',
+      entity: 'Customer',
+      entityId: id,
+      newValues: updates as Record<string, unknown>,
+    });
+
+    return { success: true, customer: customers[idx] };
   }
 
   // --- USER AUTHENTICATION & MANAGEMENT ---
@@ -445,6 +477,13 @@ export class PosStorageEngine {
       const sales = this.getSales();
       sales.unshift(newSale);
       localStorage.setItem(STORAGE_KEYS.SALES, JSON.stringify(sales));
+      // Add notification for Admin/Super Admin
+      this.addNotification({
+        title: "New Sale Completed",
+        message: `Sale ${invoiceNo} completed by ${params.cashierName} for ${grandTotal.toFixed(2)}.`,
+        type: "INFO",
+        linkModule: "POS"
+      });
 
       return { success: true, sale: newSale };
     } catch (err: unknown) {
@@ -453,38 +492,92 @@ export class PosStorageEngine {
     }
   }
 
-  static addExpense(expense: Omit<Expense, 'id' | 'createdAt'>): Expense {
+  static addExpense(expense: Omit<Expense, 'id' | 'createdAt'>, performedBy?: User): { success: boolean; expense?: Expense; error?: string } {
+    if (performedBy && !hasPermission(performedBy, 'CREATE_EXPENSE_VOUCHER') && !hasPermission(performedBy, 'FIN_MANAGE_EXPENSE')) {
+      return { success: false, error: 'صلاحية مرفوضة: لا تملك صلاحية إنشاء طلب مصروف (CREATE_EXPENSE_VOUCHER).' };
+    }
+    
+    // Auto-approve if user is Admin, otherwise pending
+    const isAdmin = performedBy && (isSuperAdmin(performedBy) || hasPermission(performedBy, 'FIN_MANAGE_EXPENSE'));
+    const initialStatus = isAdmin ? 'APPROVED' : 'PENDING_APPROVAL';
+
     const expenses = this.getExpenses();
     const newExp: Expense = {
       ...expense,
       id: `exp-${Date.now()}`,
+      status: initialStatus,
       createdAt: new Date().toISOString(),
     };
     expenses.unshift(newExp);
     localStorage.setItem(STORAGE_KEYS.EXPENSES, JSON.stringify(expenses));
 
-    // Update active session cash deduction
-    const session = this.getActiveSession();
-    if (session && expense.paymentMethod === 'CASH') {
-      session.totalExpensesAmount = Number((session.totalExpensesAmount + expense.amount).toFixed(2));
-      session.expectedCash = Number((session.openingCash + session.totalSalesAmount - session.totalRefundsAmount - session.totalExpensesAmount).toFixed(2));
-      this.saveSession(session);
+    if (initialStatus === 'PENDING_APPROVAL') {
+      this.addNotification({
+        title: 'طلب مصروف جديد (New Expense Request)',
+        message: `تم إنشاء طلب مصروف بمبلغ ${expense.amount} ج.م بواسطة ${expense.userName || performedBy?.name}. ينتظر المراجعة والاعتماد.`,
+        type: 'INFO',
+        linkModule: 'FINANCE'
+      });
     }
 
-    return newExp;
+    // Update active session cash deduction ONLY if approved
+    if (initialStatus === 'APPROVED') {
+      const session = this.getActiveSession();
+      if (session && expense.paymentMethod === 'CASH') {
+        session.totalExpensesAmount = Number((session.totalExpensesAmount + expense.amount).toFixed(2));
+        session.expectedCash = Number((session.openingCash + session.totalSalesAmount - session.totalRefundsAmount - session.totalExpensesAmount).toFixed(2));
+        this.saveSession(session);
+      }
+    }
+
+    this.addAuditLog({
+      userId: performedBy?.id || 'system',
+      userName: performedBy?.name || 'System',
+      action: 'CREATE_EXPENSE',
+      entity: 'Expense',
+      entityId: newExp.id,
+      newValues: { amount: newExp.amount, title: newExp.title, status: newExp.status },
+    });
+
+    return { success: true, expense: newExp };
   }
 
-  static updateExpense(id: string, updates: Partial<Expense>): Expense | null {
+  static updateExpense(id: string, updates: Partial<Expense>, performedBy?: User): { success: boolean; expense?: Expense; error?: string } {
+    if (performedBy && !hasPermission(performedBy, 'FIN_MANAGE_EXPENSE')) {
+      return { success: false, error: 'صلاحية مرفوضة: إدارة المصروفات تتطلب صلاحيات المشرف.' };
+    }
     const expenses = this.getExpenses();
     const idx = expenses.findIndex(e => e.id === id);
-    if (idx === -1) return null;
+    if (idx === -1) return { success: false, error: 'المصروف غير موجود' };
     const oldExp = expenses[idx];
+
+    // If changing from PENDING to APPROVED
+    const isApproving = oldExp.status !== 'APPROVED' && updates.status === 'APPROVED';
+
     const updated: Expense = { ...oldExp, ...updates };
     expenses[idx] = updated;
     localStorage.setItem(STORAGE_KEYS.EXPENSES, JSON.stringify(expenses));
 
-    // If amount changed for CASH, adjust session expected cash
-    if (oldExp.paymentMethod === 'CASH' && updates.amount !== undefined && updates.amount !== oldExp.amount) {
+    if (oldExp.status !== updated.status && (updated.status === 'APPROVED' || updated.status === 'REJECTED')) {
+      this.addNotification({
+        title: updated.status === 'APPROVED' ? 'تم اعتماد المصروف (Expense Approved)' : 'تم رفض المصروف (Expense Rejected)',
+        message: `تم ${updated.status === 'APPROVED' ? 'اعتماد وصرف' : 'رفض'} المصروف "${updated.title}" الخاص بـ ${updated.userName}.`,
+        type: updated.status === 'APPROVED' ? 'SUCCESS' : 'WARNING',
+        linkModule: 'FINANCE'
+      });
+    }
+
+    // Deduct cash if it just got approved and is CASH
+    if (isApproving && updated.paymentMethod === 'CASH') {
+      const session = this.getActiveSession();
+      if (session) {
+        session.totalExpensesAmount = Number((session.totalExpensesAmount + updated.amount).toFixed(2));
+        session.expectedCash = Number((session.openingCash + session.totalSalesAmount - session.totalRefundsAmount - session.totalExpensesAmount).toFixed(2));
+        this.saveSession(session);
+      }
+    } 
+    // If amount changed for CASH that was already approved, adjust session expected cash
+    else if (oldExp.status === 'APPROVED' && oldExp.paymentMethod === 'CASH' && updates.amount !== undefined && updates.amount !== oldExp.amount) {
       const session = this.getActiveSession();
       if (session) {
         const diff = updates.amount - oldExp.amount;
@@ -494,7 +587,17 @@ export class PosStorageEngine {
       }
     }
 
-    return updated;
+    this.addAuditLog({
+      userId: performedBy?.id || 'system',
+      userName: performedBy?.name || 'System',
+      action: 'UPDATE_EXPENSE',
+      entity: 'Expense',
+      entityId: id,
+      oldValues: { status: oldExp.status, amount: oldExp.amount },
+      newValues: { status: updated.status, amount: updated.amount },
+    });
+
+    return { success: true, expense: updated };
   }
 
   // --- CATEGORY MANAGEMENT (WITH SUPER ADMIN RBAC) ---
@@ -556,10 +659,10 @@ export class PosStorageEngine {
   }
 
   static addCategory(categoryData: Omit<Category, 'id'>, performedBy?: User): { success: boolean; category?: Category; error?: string } {
-    if (performedBy && !isSuperAdmin(performedBy)) {
+    if (performedBy && !hasPermission(performedBy, 'CREATE_CATEGORY')) {
       return {
         success: false,
-        error: 'صلاحية مرفوضة: إضافة التصنيفات مقتصرة حصرياً على مدير النظام (Super Admin only).'
+        error: 'صلاحية مرفوضة: لا تملك صلاحية إضافة التصنيفات (CREATE_CATEGORY).'
       };
     }
     const categories = this.getCategories();
@@ -584,10 +687,10 @@ export class PosStorageEngine {
   }
 
   static deleteCategory(id: string, performedBy?: User): { success: boolean; error?: string } {
-    if (performedBy && !isSuperAdmin(performedBy)) {
+    if (performedBy && !hasPermission(performedBy, 'EDIT_CATEGORY')) {
       return {
         success: false,
-        error: 'صلاحية مرفوضة: حذف التصنيفات مقتصر حصرياً على مدير النظام (Super Admin only).'
+        error: 'صلاحية مرفوضة: لا تملك صلاحية حذف/تعديل التصنيفات (EDIT_CATEGORY).'
       };
     }
     const categories = this.getCategories();
@@ -621,10 +724,10 @@ export class PosStorageEngine {
 
   // --- PRODUCT MANAGEMENT (WITH SUPER ADMIN RBAC) ---
   static addProduct(prodData: Omit<Product, 'id' | 'companyId'>, performedBy?: User): { success: boolean; product?: Product; error?: string } {
-    if (performedBy && !isSuperAdmin(performedBy)) {
+    if (performedBy && !hasPermission(performedBy, 'CREATE_PRODUCT')) {
       return {
         success: false,
-        error: 'صلاحية مرفوضة: إضافة المنتجات الجديدة مقتصرة حصرياً على مدير النظام (Super Admin only).'
+        error: 'صلاحية مرفوضة: لا تملك صلاحية إضافة المنتجات الجديدة (CREATE_PRODUCT).'
       };
     }
 
@@ -652,21 +755,21 @@ export class PosStorageEngine {
         productId: newProd.id,
         productName: newProd.name,
         productSku: newProd.sku,
-        userName: performedBy?.name || 'Super Admin',
+        userName: performedBy?.name || 'System',
         type: 'OPENING_BALANCE',
         quantity: newProd.currentStock,
         previousQuantity: 0,
         newQuantity: newProd.currentStock,
         unitCost: newProd.costPrice,
-        reason: 'رصيد افتتاحي لصنف جديد مضاف من مدير النظام',
+        reason: 'رصيد افتتاحي لصنف جديد',
         createdAt: new Date().toISOString(),
       });
       localStorage.setItem(STORAGE_KEYS.MOVEMENTS, JSON.stringify(movs));
     }
 
     this.addAuditLog({
-      userId: performedBy?.id || 'usr-admin',
-      userName: performedBy?.name || 'Super Admin',
+      userId: performedBy?.id || 'system',
+      userName: performedBy?.name || 'System',
       action: 'CREATE_PRODUCT',
       entity: 'Product',
       entityId: newProd.id,
@@ -677,10 +780,10 @@ export class PosStorageEngine {
   }
 
   static deleteProduct(id: string, performedBy?: User): { success: boolean; error?: string } {
-    if (performedBy && !isSuperAdmin(performedBy)) {
+    if (performedBy && !hasPermission(performedBy, 'EDIT_PRODUCT')) {
       return {
         success: false,
-        error: 'صلاحية مرفوضة: حذف المنتجات من المخزون مقتصر حصرياً على مدير النظام (Super Admin only).'
+        error: 'صلاحية مرفوضة: لا تملك صلاحية حذف/تعديل المنتجات من المخزون (EDIT_PRODUCT).'
       };
     }
 
@@ -801,6 +904,17 @@ export class PosStorageEngine {
     });
 
     return alerts;
+  }
+
+  static addNotification(notif: Omit<SystemNotification, 'id' | 'createdAt' | 'read'>): void {
+    const notifs = this.getNotifications();
+    notifs.unshift({
+      ...notif,
+      id: `notif-${Date.now()}-${Math.floor(Math.random() * 1000)}`,
+      createdAt: new Date().toISOString(),
+      read: false,
+    });
+    localStorage.setItem(STORAGE_KEYS.NOTIFICATIONS, JSON.stringify(notifs));
   }
 
   static markNotificationAsRead(id: string): void {

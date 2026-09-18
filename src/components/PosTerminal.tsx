@@ -430,7 +430,7 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({ lang, selectedBranch, 
         </div>
 
         {/* Product Grid */}
-        <div className="flex-1 overflow-y-auto grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 pr-1">
+        <div className="flex-1 overflow-y-auto min-h-0 grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 pr-1">
           {filteredProducts.length === 0 ? (
             <div className="col-span-full flex flex-col items-center justify-center p-12 text-slate-400 bg-white rounded-2xl border border-dashed border-slate-300 my-auto">
               <AlertCircle className="w-10 h-10 text-slate-300 mb-2" />
@@ -583,7 +583,7 @@ export const PosTerminal: React.FC<PosTerminalProps> = ({ lang, selectedBranch, 
         </div>
 
         {/* Cart Line Items */}
-        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+        <div className="flex-1 overflow-y-auto min-h-0 p-3 space-y-2">
           {cart.length === 0 ? (
             <div className="h-full flex flex-col items-center justify-center text-center p-6 text-slate-400">
               <Barcode className="w-12 h-12 text-slate-300 stroke-1 mb-2" />
